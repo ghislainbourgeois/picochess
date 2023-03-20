@@ -526,14 +526,16 @@ def read_online_user_info() -> Tuple[str, str, str, str, int, int]:
 
 
 def compare_fen(fen_board_external="", fen_board_internal="") -> str:
-    # <Piece Placement> ::= <rank8>'/'<rank7>'/'<rank6>'/'<rank5>'/'<rank4>'/'<rank3>'/'<rank2>'/'<rank1>
-    # <ranki>       ::= [<digit17>]<piece> {[<digit17>]<piece>} [<digit17>] | '8'
-    # <piece>       ::= <white Piece> | <black Piece>
-    # <digit17>     ::= '1' | '2' | '3' | '4' | '5' | '6' | '7'
-    # <white Piece> ::= 'P' | 'N' | 'B' | 'R' | 'Q' | 'K'
-    # <black Piece> ::= 'p' | 'n' | 'b' | 'r' | 'q' | 'k'
-    # eg. starting position 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR'
-    #                       'a8 b8 c8 d8... / a7 b7... / a1 b1 c1 ... h1'
+    """
+    <Piece Placement> ::= <rank8>'/'<rank7>'/'<rank6>'/'<rank5>'/'<rank4>'/'<rank3>'/'<rank2>'/'<rank1>
+    <ranki>       ::= [<digit17>]<piece> {[<digit17>]<piece>} [<digit17>] | '8'
+    <piece>       ::= <white Piece> | <black Piece>
+    <digit17>     ::= '1' | '2' | '3' | '4' | '5' | '6' | '7'
+    <white Piece> ::= 'P' | 'N' | 'B' | 'R' | 'Q' | 'K'
+    <black Piece> ::= 'p' | 'n' | 'b' | 'r' | 'q' | 'k'
+    eg. starting position 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR'
+                          'a8 b8 c8 d8... / a7 b7... / a1 b1 c1 ... h1'
+    """
 
     if (
         fen_board_external == fen_board_internal
