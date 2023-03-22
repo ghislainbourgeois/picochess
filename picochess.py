@@ -147,35 +147,84 @@ class AlternativeMover:
 class PicochessState:
     """Class to keep track of state in Picochess."""
 
-    def __init__(self):
+    def __init__(self, args):
         self.automatic_takeback = False
         self.best_move_displayed = None
         self.best_move_posted = False
         self.book_in_use = ""
-        self.com_factor = 0
+        self.com_factor = args.comment_factor
         self.comment_file = ""
-        self.dgtmenu = None
-        self.dgttranslate = None
+        try:
+            self.board_type = dgt.util.EBoard[args.board_type.upper()]
+        except KeyError:
+            self.board_type = dgt.util.EBoard.DGT
+        # wire some dgt classes
+        if self.board_type == dgt.util.EBoard.CHESSLINK:
+            self.dgtboard: EBoard = ChessLinkBoard()
+        elif self.board_type == dgt.util.EBoard.CHESSNUT:
+            self.dgtboard = ChessnutBoard()
+        elif self.board_type == dgt.util.EBoard.CERTABO:
+            self.dgtboard = CertaboBoard()
+        else:
+            self.dgtboard = DgtBoard(
+                args.dgt_port,
+                args.disable_revelation_leds,
+                args.dgtpi,
+                args.disable_et,
+                args.slow_slide,
+            )
+        self.dgttranslate = DgtTranslate(
+            args.beep_config, args.beep_some_level, args.language, version
+        )
+        self.dgtmenu = DgtMenu(
+            args.disable_confirm_message,
+            args.ponder_interval,
+            args.user_voice,
+            args.computer_voice,
+            args.speed_voice,
+            args.enable_capital_letters,
+            args.disable_short_notation,
+            args.log_file,
+            args.engine_remote_server,
+            args.rolling_display_normal,
+            max(0, min(10, args.volume_voice)),
+            self.board_type,
+            args.theme,
+            round(float(args.rspeed), 2),
+            args.rsound,
+            args.rolling_display_ponder,
+            args.show_engine,
+            args.tutor_coach,
+            args.tutor_watcher,
+            args.tutor_explorer,
+            PicoComment.from_str(args.tutor_comment),
+            args.continue_game,
+            args.alt_move,
+            self.dgttranslate,
+        )
         self.done_computer_fen = None
         self.done_move = chess.Move.null()
+        self.engine_file = args.engine
+        self.engine_name = None
         self.engine_text = None
-        self.engine_level = ""
-        self.new_engine_level = ""
+        self.engine_level = args.engine_level
+        self.engine_remote_home = args.engine_remote_home.rstrip(os.sep)
+        self.new_engine_level = args.engine_level
         self.newgame_happened = False
-        self.old_engine_level = ""
+        self.old_engine_level = args.engine_level
         self.error_fen = None
         self.fen_error_occured = False
         self.fen_timer = None
         self.fen_timer_running = False
-        self.flag_flexible_ponder = False
+        self.flag_flexible_ponder = args.flexible_analysis
         self.flag_last_engine_emu = False
         self.flag_last_engine_online = False
         self.flag_last_engine_pgn = False
         self.flag_picotutor = True
         self.flag_pgn_game_over = False
-        self.flag_premove = False
+        self.flag_premove = args.premove
         self.flag_startup = False
-        self.game = None
+        self.game = chess.Board()
         self.game_declared = False  # User declared resignation or draw
         self.interaction_mode = Mode.NORMAL
         self.last_legal_fens: List[Any] = []
@@ -187,7 +236,7 @@ class PicochessState:
         self.max_guess_white = 0
         self.no_guess_black = 1
         self.no_guess_white = 1
-        self.online_decrement = 0
+        self.online_decrement = args.online_decrement
         self.pb_move = chess.Move.null()  # Best ponder move
         self.pgn_book_test = False
         self._picotutor: Optional[PicoTutor] = None
@@ -196,7 +245,7 @@ class PicochessState:
         self.reset_auto = False
         self.searchmoves = AlternativeMover()
         self.seeking_flag = False
-        self.set_location = ""
+        self.set_location = args.location
         self.start_time_cmove_done = 0.0
         self.take_back_locked = False
         self.takeback_active = False
@@ -584,9 +633,33 @@ def compute_legal_fens(game_copy: chess.Board):
     return fens
 
 
+def setup_logging(args) -> None:
+    """Enable and configure logging if enabled by configuration."""
+    if args.log_file:
+        handler = RotatingFileHandler(
+            "logs" + os.sep + args.log_file, maxBytes=1 * 1024 * 1024, backupCount=5
+        )
+        logging.basicConfig(
+            level=getattr(logging, args.log_level.upper()),
+            format="%(asctime)s.%(msecs)03d %(levelname)7s %(module)10s - %(funcName)s: %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+            handlers=[handler],
+        )
+    logging.getLogger("chess.engine").setLevel(
+        logging.INFO
+    )  # don't want to get so many python-chess uci messages
+
+    logger.debug("#" * 20 + " PicoChess v%s " + "#" * 20, version)
+    # log the startup parameters but hide the password fields
+    a_copy = copy.copy(vars(args))
+    a_copy["mailgun_key"] = a_copy["smtp_pass"] = a_copy["engine_remote_key"] = a_copy[
+        "engine_remote_pass"
+    ] = "*****"
+    logger.debug("startup parameters: %s", a_copy)
+
+
 def main() -> None:
     """Main function."""
-    state = PicochessState()
 
     def det_pgn_guess_tctrl(state: PicochessState):
         state.max_guess_white = 0
@@ -715,7 +788,7 @@ def main() -> None:
             state.flag_picotutor
             and state.interaction_mode in (Mode.NORMAL, Mode.TRAINING, Mode.BRAIN)
             and not online_mode()
-            and not pgn_mode()
+            and not pgn_mode(state)
             and (
                 state.dgtmenu.get_picowatcher()
                 or state.dgtmenu.get_picocoach()
@@ -740,36 +813,36 @@ def main() -> None:
             logger.debug("molli comment file does not exist")
             return ""
 
-    def pgn_mode():
-        if "pgn_" in engine_file:
+    def pgn_mode(state: PicochessState) -> bool:
+        if "pgn_" in state.engine_file:
             return True
         else:
             return False
 
-    def remote_engine_mode():
-        if "remote" in engine_file:
+    def remote_engine_mode(state: PicochessState) -> bool:
+        if "remote" in state.engine_file:
             return True
         else:
             return False
 
     def emulation_mode():
         emulation = False
-        if "(mame" in engine_name or "(mess" in engine_name or engine.is_mame:
+        if "(mame" in state.engine_name or "(mess" in state.engine_name or engine.is_mame:
             emulation = True
         return emulation
 
     def online_mode():
         online = False
-        if len(engine_name) >= 6:
-            if engine_name[0:6] == ONLINE_PREFIX:
+        if len(state.engine_name) >= 6:
+            if state.engine_name[0:6] == ONLINE_PREFIX:
                 online = True
             else:
                 online = False
         return online
 
-    def remote_windows():
+    def remote_windows(state: PicochessState):
         windows = False
-        if "\\" in engine_remote_home:
+        if "\\" in state.engine_remote_home:
             windows = True
         else:
             windows = False
@@ -937,7 +1010,7 @@ def main() -> None:
                 state.interaction_mode in (Mode.NORMAL, Mode.TRAINING, Mode.BRAIN)
                 and game_fen != chess.STARTING_BOARD_FEN
                 and not online_mode()
-                and not pgn_mode()
+                and not pgn_mode(state)
                 and not emulation_mode()
                 and state.error_fen != game_fen
                 and state.take_back_locked
@@ -954,7 +1027,7 @@ def main() -> None:
                 and state.flag_startup
                 and state.dgtmenu.get_game_contlast()
                 and not online_mode()
-                and not pgn_mode()
+                and not pgn_mode(state)
                 and not emulation_mode()
             ):
                 # molli: read the pgn of last game and restore correct game status and times
@@ -1078,7 +1151,7 @@ def main() -> None:
                     if state.dgtmenu.get_enginename():
                         DisplayMsg.show(Message.ENGINE_NAME(engine_name=state.engine_text))
 
-                    if pgn_mode():
+                    if pgn_mode(state):
                         pgn_white = ""
                         pgn_black = ""
                         (
@@ -1139,8 +1212,8 @@ def main() -> None:
         if not online_mode() or game.fullmove_number > 1:
             state.start_clock()
         book_res = state.searchmoves.book(bookreader, game.copy())
-        if (book_res and not emulation_mode() and not online_mode() and not pgn_mode()) or (
-            book_res and (pgn_mode() and state.pgn_book_test)
+        if (book_res and not emulation_mode() and not online_mode() and not pgn_mode(state)) or (
+            book_res and (pgn_mode(state) and state.pgn_book_test)
         ):
             Observable.fire(
                 Event.BEST_MOVE(move=book_res.bestmove, ponder=book_res.ponder, inbook=True)
@@ -1389,7 +1462,7 @@ def main() -> None:
                             if emulation_mode() and eval_str == "??" and state.last_move != move:
                                 # molli: do not send move to engine
                                 # wait for take back or lever button in case of no takeback
-                                if board_type == dgt.util.EBoard.NOEBOARD:
+                                if state.board_type == dgt.util.EBoard.NOEBOARD:
                                     Observable.fire(Event.TAKE_BACK(take_back="PGN_TAKEBACK"))
                                 else:
                                     state.takeback_active = True
@@ -1650,7 +1723,7 @@ def main() -> None:
             and state.interaction_mode in (Mode.NORMAL, Mode.BRAIN)
             and not online_mode()
             and not emulation_mode()
-            and not pgn_mode()
+            and not pgn_mode(state)
             and state.dgtmenu.get_game_altmove()
             and not state.takeback_active
         ):
@@ -1766,7 +1839,7 @@ def main() -> None:
                     stop_search_and_clock()
                     state.stop_fen_timer()
                 stop_search_and_clock()
-                if not pgn_mode():
+                if not pgn_mode(state):
                     DisplayMsg.show(game_end)
             else:
                 state.searchmoves.reset()
@@ -1799,7 +1872,7 @@ def main() -> None:
 
                 state.legal_fens = compute_legal_fens(state.game.copy())
 
-                if pgn_mode():
+                if pgn_mode(state):
                     log_pgn(state)
                     if state.game.turn == chess.WHITE:
                         if state.max_guess_white > 0:
@@ -1919,7 +1992,7 @@ def main() -> None:
 
                         break
 
-                if pgn_mode():  # molli pgn
+                if pgn_mode(state):  # molli pgn
                     log_pgn(state)
                     if state.max_guess_white > 0:
                         if state.game.turn == chess.WHITE:
@@ -2095,7 +2168,7 @@ def main() -> None:
                     break
         return {}, None
 
-    def engine_mode():
+    def engine_mode(state: PicochessState) -> None:
         ponder_mode = analyse_mode = False
         if state.interaction_mode == Mode.BRAIN:
             ponder_mode = True
@@ -2152,7 +2225,7 @@ def main() -> None:
         else:
             ModeInfo.set_online_mode(mode=False)
 
-        if pgn_mode():
+        if pgn_mode(state):
             ModeInfo.set_pgn_mode(mode=True)
         else:
             ModeInfo.set_pgn_mode(mode=False)
@@ -2219,7 +2292,7 @@ def main() -> None:
             state.takeback_active = True
             set_wait_state(Message.TAKE_BACK(game=state.game.copy()), state)
 
-            if pgn_mode():  # molli pgn
+            if pgn_mode(state):  # molli pgn
                 log_pgn(state)
                 if state.max_guess_white > 0:
                     if state.game.turn == chess.WHITE:
@@ -2236,90 +2309,18 @@ def main() -> None:
 
     args = config()
 
-    # Enable logging
-    if args.log_file:
-        handler = RotatingFileHandler(
-            "logs" + os.sep + args.log_file, maxBytes=1 * 1024 * 1024, backupCount=5
-        )
-        logging.basicConfig(
-            level=getattr(logging, args.log_level.upper()),
-            format="%(asctime)s.%(msecs)03d %(levelname)7s %(module)10s - %(funcName)s: %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
-            handlers=[handler],
-        )
-    logging.getLogger("chess.engine").setLevel(
-        logging.INFO
-    )  # don't want to get so many python-chess uci messages
-
-    logger.debug("#" * 20 + " PicoChess v%s " + "#" * 20, version)
-    # log the startup parameters but hide the password fields
-    a_copy = copy.copy(vars(args))
-    a_copy["mailgun_key"] = a_copy["smtp_pass"] = a_copy["engine_remote_key"] = a_copy[
-        "engine_remote_pass"
-    ] = "*****"
-    logger.debug("startup parameters: %s", a_copy)
+    setup_logging(args)
 
     EngineProvider.init()
 
     Rev2Info.set_dgtpi(args.dgtpi)
-    state.flag_flexible_ponder = args.flexible_analysis
-    state.flag_premove = args.premove
+    state = PicochessState(args)
+
     own_user = ""
     opp_user = ""
     game_time = 0
     fischer_inc = 0
     login = ""
-    state.set_location = args.location
-    state.online_decrement = args.online_decrement
-
-    try:
-        board_type = dgt.util.EBoard[args.board_type.upper()]
-    except KeyError:
-        board_type = dgt.util.EBoard.DGT
-    # wire some dgt classes
-    if board_type == dgt.util.EBoard.CHESSLINK:
-        dgtboard: EBoard = ChessLinkBoard()
-    elif board_type == dgt.util.EBoard.CHESSNUT:
-        dgtboard = ChessnutBoard()
-    elif board_type == dgt.util.EBoard.CERTABO:
-        dgtboard = CertaboBoard()
-    else:
-        dgtboard = DgtBoard(
-            args.dgt_port,
-            args.disable_revelation_leds,
-            args.dgtpi,
-            args.disable_et,
-            args.slow_slide,
-        )
-    state.dgttranslate = DgtTranslate(
-        args.beep_config, args.beep_some_level, args.language, version
-    )
-    state.dgtmenu = DgtMenu(
-        args.disable_confirm_message,
-        args.ponder_interval,
-        args.user_voice,
-        args.computer_voice,
-        args.speed_voice,
-        args.enable_capital_letters,
-        args.disable_short_notation,
-        args.log_file,
-        args.engine_remote_server,
-        args.rolling_display_normal,
-        max(0, min(10, args.volume_voice)),
-        board_type,
-        args.theme,
-        round(float(args.rspeed), 2),
-        args.rsound,
-        args.rolling_display_ponder,
-        args.show_engine,
-        args.tutor_coach,
-        args.tutor_watcher,
-        args.tutor_explorer,
-        PicoComment.from_str(args.tutor_comment),
-        args.continue_game,
-        args.alt_move,
-        state.dgttranslate,
-    )
 
     dgtdispatcher = Dispatcher(state.dgtmenu)
 
@@ -2335,13 +2336,6 @@ def main() -> None:
 
     # The class dgtDisplay fires Event (Observable) & DispatchDgt (Dispatcher)
     DgtDisplay(state.dgttranslate, state.dgtmenu, state.time_control).start()
-
-    # Create PicoTalker for speech output
-    # molli: add probability factor for game comments args.com_fact
-    state.com_factor = args.comment_factor
-    logger.debug(
-        "molli: probability factor for game comments args.comment_factor %s", state.com_factor
-    )
 
     sample_beeper = False
     sample_beeper_level = 0
@@ -2370,28 +2364,28 @@ def main() -> None:
         state.com_factor,
         sample_beeper,
         sample_beeper_level,
-        board_type,
+        state.board_type,
     ).start()
 
     # Launch web server
     if args.web_server_port:
         WebServer(
-            args.web_server_port, dgtboard, calc_theme(args.theme, state.set_location)
+            args.web_server_port, state.dgtboard, calc_theme(args.theme, state.set_location)
         ).start()
         dgtdispatcher.register("web")
 
-    if board_type == dgt.util.EBoard.NOEBOARD:
+    if state.board_type == dgt.util.EBoard.NOEBOARD:
         logger.debug("starting PicoChess in no eboard mode")
     else:
         # Connect to DGT board
         logger.debug("starting PicoChess in board mode")
         if args.dgtpi:
-            DgtPi(dgtboard).start()
+            DgtPi(state.dgtboard).start()
             dgtdispatcher.register("i2c")
         else:
             logger.debug("(ser) starting the board connection")
-            dgtboard.run()  # a clock can only be online together with the board, so we must start it infront
-        DgtHw(dgtboard).start()
+            state.dgtboard.run()  # a clock can only be online together with the board, so we must start it infront
+        DgtHw(state.dgtboard).start()
         dgtdispatcher.register("ser")
 
     # The class Dispatcher sends DgtApi messages at the correct (delayed) time out
@@ -2431,37 +2425,30 @@ def main() -> None:
     state.fen_timer_running = False
     ###########################################
 
-    # try the given engine first and if that fails the first from "engines.ini" then exit
-    engine_file = args.engine
-
-    engine_remote_home = args.engine_remote_home.rstrip(os.sep)
-
-    engine_name = None
     uci_remote_shell = None
 
     uci_local_shell = UciShell(hostname="", username="", key_file="", password="")
 
-    if engine_file is None:
-        engine_file = EngineProvider.installed_engines[0]["file"]
+    if state.engine_file is None:
+        state.engine_file = EngineProvider.installed_engines[0]["file"]
 
     engine = UciEngine(
-        file=engine_file,
+        file=state.engine_file,
         uci_shell=uci_local_shell,
         mame_par=get_engine_mame_par(
             state.dgtmenu.get_engine_rspeed(), state.dgtmenu.get_engine_rsound()
         ),
     )
     try:
-        engine_name = engine.get_name()
+        state.engine_name = engine.get_name()
     except AttributeError:
-        logger.error("engine %s not started", engine_file)
+        logger.error("engine %s not started", state.engine_file)
         time.sleep(3)
         DisplayMsg.show(Message.ENGINE_FAIL())
         time.sleep(2)
         sys.exit(-1)
 
     # Startup - internal
-    state.game = chess.Board()  # Create the current game
     fen = state.game.fen()
     state.legal_fens = compute_legal_fens(state.game.copy())  # Compute the legal FENs
     is_out_of_time_already = False  # molli: out of time message only once
@@ -2485,11 +2472,6 @@ def main() -> None:
     engine_opt, level_index = get_engine_level_dict(args.engine_level)
     engine.startup(engine_opt, state.rating)
 
-    # Startup - external
-    state.engine_level = args.engine_level
-    state.old_engine_level = state.engine_level
-    state.new_engine_level = state.engine_level
-
     if state.engine_level:
         level_text = state.dgttranslate.text("B00_level", state.engine_level)
         level_text.beep = False
@@ -2499,7 +2481,7 @@ def main() -> None:
 
     sys_info = {
         "version": version,
-        "engine_name": engine_name,
+        "engine_name": state.engine_name,
         "user_name": user_name,
         "user_elo": args.pgn_elo,
         "rspeed": round(float(args.rspeed), 2),
@@ -2542,7 +2524,7 @@ def main() -> None:
         time_control_l, time_text_l = state.transfer_time(pico_time.split(), depth=0, node=0)
         state.tc_init_last = time_control_l.get_parameters()
 
-    if pgn_mode():
+    if pgn_mode(state):
         ModeInfo.set_pgn_mode(mode=True)
         state.flag_last_engine_pgn = True
         det_pgn_guess_tctrl(state)
@@ -2623,9 +2605,9 @@ def main() -> None:
                     stop_search()
                 # Closeout the engine process and threads
 
-                engine_file = event.eng["file"]
-                help_str = engine_file.rsplit(os.sep, 1)[1]
-                remote_file = engine_remote_home + os.sep + help_str
+                state.engine_file = event.eng["file"]
+                help_str = state.engine_file.rsplit(os.sep, 1)[1]
+                remote_file = state.engine_remote_home + os.sep + help_str
 
                 flag_eng = False
                 flag_eng = check_ssh(
@@ -2635,10 +2617,10 @@ def main() -> None:
                 logger.debug("molli check_ssh:%s", flag_eng)
                 DisplayMsg.show(Message.ENGINE_SETUP())
 
-                if remote_engine_mode():
+                if remote_engine_mode(state):
                     if flag_eng:
                         if not uci_remote_shell:
-                            if remote_windows():
+                            if remote_windows(state):
                                 logger.info("molli: Remote Windows Connection")
                                 uci_remote_shell = UciShell(
                                     hostname=args.engine_remote_server,
@@ -2664,7 +2646,7 @@ def main() -> None:
 
                 if engine.quit():
                     # Load the new one and send args.
-                    if remote_engine_mode() and flag_eng and uci_remote_shell:
+                    if remote_engine_mode(state) and flag_eng and uci_remote_shell:
                         engine = UciEngine(
                             file=remote_file,
                             uci_shell=uci_remote_shell,
@@ -2675,7 +2657,7 @@ def main() -> None:
                         )
                     else:
                         engine = UciEngine(
-                            file=engine_file,
+                            file=state.engine_file,
                             uci_shell=uci_local_shell,
                             mame_par=get_engine_mame_par(
                                 state.dgtmenu.get_engine_rspeed(),
@@ -2683,17 +2665,17 @@ def main() -> None:
                             ),
                         )
                     try:
-                        engine_name = engine.get_name()
+                        state.engine_name = engine.get_name()
                     except AttributeError:
                         # New engine failed to start, restart old engine
                         logger.error("new engine failed to start, reverting to %s", old_file)
                         engine_fallback = True
                         event.options = old_options
-                        engine_file = old_file
+                        state.engine_file = old_file
                         help_str = old_file.rsplit(os.sep, 1)[1]
-                        remote_file = engine_remote_home + os.sep + help_str
+                        remote_file = state.engine_remote_home + os.sep + help_str
 
-                        if remote_engine_mode() and flag_eng and uci_remote_shell:
+                        if remote_engine_mode(state) and flag_eng and uci_remote_shell:
                             engine = UciEngine(
                                 file=remote_file,
                                 uci_shell=uci_remote_shell,
@@ -2712,7 +2694,7 @@ def main() -> None:
                                 ),
                             )
                         try:
-                            engine_name = engine.get_name()
+                            state.engine_name = engine.get_name()
                         except AttributeError:
                             # Help - old engine failed to restart. There is no engine
                             logger.error("no engines started")
@@ -2727,7 +2709,7 @@ def main() -> None:
                         )
                         engine_fallback = True
                         if engine.quit():
-                            if remote_engine_mode() and flag_eng and uci_remote_shell:
+                            if remote_engine_mode(state) and flag_eng and uci_remote_shell:
                                 engine = UciEngine(
                                     file=remote_file,
                                     uci_shell=uci_remote_shell,
@@ -2748,7 +2730,7 @@ def main() -> None:
                             engine.startup(old_options, state.rating)
                             engine.newgame(state.game.copy())
                             try:
-                                engine_name = engine.get_name()
+                                state.engine_name = engine.get_name()
                             except AttributeError:
                                 logger.error("no engines started")
                                 DisplayMsg.show(Message.ENGINE_FAIL())
@@ -2782,9 +2764,9 @@ def main() -> None:
                             event.options = dict()
                             old_file = "engines/armv7l/a-stockf"
                             help_str = old_file.rsplit(os.sep, 1)[1]
-                            remote_file = engine_remote_home + os.sep + help_str
+                            remote_file = state.engine_remote_home + os.sep + help_str
 
-                            if remote_engine_mode() and flag_eng and uci_remote_shell:
+                            if remote_engine_mode(state) and flag_eng and uci_remote_shell:
                                 engine = UciEngine(
                                     file=remote_file,
                                     uci_shell=uci_remote_shell,
@@ -2803,7 +2785,7 @@ def main() -> None:
                                     ),
                                 )
                             try:
-                                engine_name = engine.get_name()
+                                state.engine_name = engine.get_name()
                             except AttributeError:
                                 # Help - old engine failed to restart. There is no engine
                                 logger.error("no engines started")
@@ -2813,7 +2795,7 @@ def main() -> None:
                             engine.startup(event.options, state.rating)
                         else:
                             time.sleep(2)
-                    elif emulation_mode() or pgn_mode():
+                    elif emulation_mode() or pgn_mode(state):
                         # molli for emulation engine we have to reset to starting position
                         stop_search_and_clock()
                         state.game = chess.Board()
@@ -2831,7 +2813,7 @@ def main() -> None:
                     else:
                         engine.newgame(state.game.copy())
 
-                    engine_mode()
+                    engine_mode(state)
 
                     if engine_fallback:
                         msg = Message.ENGINE_FAIL()
@@ -2860,7 +2842,7 @@ def main() -> None:
                         state.searchmoves.reset()
                         msg = Message.ENGINE_READY(
                             eng=event.eng,
-                            engine_name=engine_name,
+                            engine_name=state.engine_name,
                             eng_text=event.eng_text,
                             has_levels=engine.has_levels(),
                             has_960=engine.has_chess960(),
@@ -2885,20 +2867,20 @@ def main() -> None:
 
                 state.old_engine_level = state.new_engine_level
                 state.engine_level = state.new_engine_level
-                state.dgtmenu.set_state_current_engine(engine_file)
+                state.dgtmenu.set_state_current_engine(state.engine_file)
                 state.dgtmenu.exit_menu()
                 # here dont care if engine supports pondering, cause Mode.NORMAL from startup
                 if (
-                    not remote_engine_mode()
+                    not remote_engine_mode(state)
                     and not online_mode()
-                    and not pgn_mode()
+                    and not pgn_mode(state)
                     and not engine_fallback
                 ):
                     # dont write engine(_level) if remote/online engine or engine failure
                     write_picochess_ini("engine", event.eng["file"])
                     write_picochess_ini("engine-level", state.engine_level)
 
-                if pgn_mode():
+                if pgn_mode(state):
                     if not state.flag_last_engine_pgn:
                         state.tc_init_last = state.time_control.get_parameters()
 
@@ -2916,7 +2898,7 @@ def main() -> None:
                         and state.tc_init_last is not None
                         and not online_mode()
                         and not emulation_mode()
-                        and not pgn_mode()
+                        and not pgn_mode(state)
                     ):
                         state.stop_clock()
                         text = state.dgttranslate.text("N00_oktime")
@@ -2936,13 +2918,13 @@ def main() -> None:
                 )  # for picotutor game comments like Boris & Sargon
                 state.picotutor.init_comments(state.comment_file)
 
-                if pgn_mode() or emulation_mode():
+                if pgn_mode(state) or emulation_mode():
                     # molli: in these cases we can't continue from current position but
                     #        have to start a new game
                     if emulation_mode():
                         set_emulation_tctrl(state)
                     # prepare new game
-                    if pgn_mode():
+                    if pgn_mode(state):
                         (
                             pgn_game_name,
                             pgn_problem,
@@ -2980,7 +2962,7 @@ def main() -> None:
                     state.flag_last_engine_online = False
                     ModeInfo.set_online_mode(mode=False)
 
-                if pgn_mode():
+                if pgn_mode(state):
                     ModeInfo.set_pgn_mode(mode=True)
                 else:
                     ModeInfo.set_pgn_mode(mode=False)
@@ -3034,7 +3016,7 @@ def main() -> None:
                 ModeInfo.set_game_ending(
                     result="*"
                 )  # initialize game result for game saving status
-                engine_name = engine.get_name()
+                state.engine_name = engine.get_name()
                 state.position_mode = False
                 state.fen_error_occured = False
                 state.newgame_happened = True
@@ -3142,7 +3124,7 @@ def main() -> None:
                     state.last_legal_fens = []
                     state.legal_fens_after_cmove = []
                     is_out_of_time_already = False
-                    if pgn_mode():
+                    if pgn_mode(state):
                         if state.max_guess > 0:
                             state.max_guess_white = state.max_guess
                             state.max_guess_black = 0
@@ -3235,7 +3217,7 @@ def main() -> None:
                             switch_online(state)
                     else:
                         logger.debug("no need to start a new game")
-                        if pgn_mode():
+                        if pgn_mode(state):
                             (
                                 pgn_game_name,
                                 pgn_problem,
@@ -3273,7 +3255,7 @@ def main() -> None:
                     if state.dgtmenu.get_enginename():
                         time.sleep(0.7)  # give time for ABORT message
                         DisplayMsg.show(Message.ENGINE_NAME(engine_name=state.engine_text))
-                    if pgn_mode():
+                    if pgn_mode(state):
                         pgn_white = ""
                         pgn_black = ""
                         time.sleep(1)
@@ -3315,7 +3297,7 @@ def main() -> None:
                                     get_next_pgn_move(state)
 
             elif isinstance(event, Event.PAUSE_RESUME):
-                if pgn_mode():
+                if pgn_mode(state):
                     engine.pause_pgn_audio()
                 else:
                     if engine.is_thinking():
@@ -3447,7 +3429,7 @@ def main() -> None:
 
                     state.legal_fens = []
 
-                    if pgn_mode():  # molli change pgn guessing game sides
+                    if pgn_mode(state):  # molli change pgn guessing game sides
                         if state.max_guess_black > 0:
                             state.max_guess_white = state.max_guess_black
                             state.max_guess_black = 0
@@ -3552,7 +3534,7 @@ def main() -> None:
 
             elif isinstance(event, Event.REMOTE_MOVE):
                 state.flag_startup = False
-                if board_type == dgt.util.EBoard.NOEBOARD:
+                if state.board_type == dgt.util.EBoard.NOEBOARD:
                     user_move(event.move, sliding=True, state=state)
                 else:
                     if state.interaction_mode == Mode.REMOTE and state.is_not_user_turn():
@@ -3735,7 +3717,7 @@ def main() -> None:
                                         )
                             else:
 
-                                if pgn_mode():
+                                if pgn_mode(state):
                                     # molli: check if last move of pgn game file
                                     stop_search_and_clock()
                                     log_pgn(state)
@@ -3783,7 +3765,7 @@ def main() -> None:
                                             else:
                                                 # user move wrong in pgn display mode only
                                                 DisplayMsg.show(Message.MOVE_RETRY())
-                                            if board_type == dgt.util.EBoard.NOEBOARD:
+                                            if state.board_type == dgt.util.EBoard.NOEBOARD:
                                                 Observable.fire(
                                                     Event.TAKE_BACK(take_back="PGN_TAKEBACK")
                                                 )
@@ -3819,7 +3801,7 @@ def main() -> None:
                                             # user move wrong in pgn display mode only
                                             DisplayMsg.show(Message.MOVE_RETRY())
 
-                                        if board_type == dgt.util.EBoard.NOEBOARD:
+                                        if state.board_type == dgt.util.EBoard.NOEBOARD:
                                             Observable.fire(
                                                 Event.TAKE_BACK(take_back="PGN_TAKEBACK")
                                             )
@@ -3862,7 +3844,7 @@ def main() -> None:
                             game_copy.push(event.move)
 
                             if picotutor_mode(state):
-                                if pgn_mode():
+                                if pgn_mode(state):
                                     t_color = state.picotutor.get_user_color()
                                     if t_color == chess.BLACK:
                                         state.picotutor.set_user_color(chess.WHITE)
@@ -3892,7 +3874,7 @@ def main() -> None:
                             )
                             state.legal_fens_after_cmove = compute_legal_fens(game_copy)
 
-                            if pgn_mode():
+                            if pgn_mode(state):
                                 # molli pgn: reset pgn guess counters
                                 if (
                                     state.max_guess_black > 0
@@ -3906,7 +3888,7 @@ def main() -> None:
                                     state.no_guess_white = 1
 
                             # molli: noeboard/WEB-Play
-                            if board_type == dgt.util.EBoard.NOEBOARD:
+                            if state.board_type == dgt.util.EBoard.NOEBOARD:
                                 logger.info("done move detected")
                                 assert state.interaction_mode in (
                                     Mode.NORMAL,
@@ -3948,7 +3930,7 @@ def main() -> None:
                                         stop_search_and_clock()
                                         state.stop_fen_timer()
                                     stop_search_and_clock()
-                                    if not pgn_mode():
+                                    if not pgn_mode(state):
                                         DisplayMsg.show(game_end)
                                 else:
                                     state.searchmoves.reset()
@@ -3982,7 +3964,7 @@ def main() -> None:
 
                                     state.legal_fens = compute_legal_fens(state.game.copy())
 
-                                    if pgn_mode():
+                                    if pgn_mode(state):
                                         log_pgn(state)
                                         if state.game.turn == chess.WHITE:
                                             if state.max_guess_white > 0:
@@ -4106,7 +4088,7 @@ def main() -> None:
                         state.newgame_happened = False
                     stop_search_and_clock()
                     state.interaction_mode = event.mode
-                    engine_mode()
+                    engine_mode(state)
                     msg = Message.INTERACTION_MODE(
                         mode=event.mode, mode_text=event.mode_text, show_ok=event.show_ok
                     )
@@ -4208,7 +4190,7 @@ def main() -> None:
                         state.picotutor.stop()
 
                 DisplayMsg.show(Message.PICOCOACH(picocoach=event.picocoach))
-                if state.dgtmenu.get_picocoach() and board_type == dgt.util.EBoard.NOEBOARD:
+                if state.dgtmenu.get_picocoach() and state.board_type == dgt.util.EBoard.NOEBOARD:
                     call_pico_coach(state)
 
             elif isinstance(event, Event.PICOEXPLORER):
@@ -4240,7 +4222,7 @@ def main() -> None:
                     DisplayMsg.show(Message.ENGINE_SETUP())
                     if engine.quit():
                         engine = UciEngine(
-                            file=engine_file,
+                            file=state.engine_file,
                             uci_shell=uci_local_shell,
                             mame_par=get_engine_mame_par(
                                 state.dgtmenu.get_engine_rspeed(),
@@ -4261,7 +4243,7 @@ def main() -> None:
                         state.last_legal_fens = []
                         state.legal_fens_after_cmove = []
                         is_out_of_time_already = False
-                        engine_mode()
+                        engine_mode(state)
                         DisplayMsg.show(Message.RSPEED(rspeed=event.rspeed))
                         update_elo_display(state)
                     else:
@@ -4288,7 +4270,7 @@ def main() -> None:
 
                 state.time_control = TimeControl(**tc_init)
 
-                if not pgn_mode() and not online_mode():
+                if not pgn_mode(state) and not online_mode():
                     if tc_init["moves_to_go"] > 0:
                         if state.time_control.mode == TimeMode.BLITZ:
                             write_picochess_ini(
@@ -4361,7 +4343,7 @@ def main() -> None:
                         )
 
                     low_time = False  # molli allow the speech output even for less than 60 seconds
-                    dgtboard.low_time = low_time
+                    state.dgtboard.low_time = low_time
                     if state.interaction_mode == Mode.TRAINING or state.position_mode:
                         pass
                     else:
