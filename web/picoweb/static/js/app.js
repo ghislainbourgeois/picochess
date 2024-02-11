@@ -39,24 +39,34 @@ var simpleNags = {
     '142': '&#8979',
     '146': 'N'
 };
-var myvoice = "";
-var voices = speechSynthesis.getVoices();
-/* for Safari we need to pick an English voice explicitly, otherwise the system default is used */
-for (i = 0; i < voices.length; i++) {
-    if (voices[i].lang == "en-US") {
-        myvoice = voices[i];
-        break;
+
+var speechAvailable = true
+if (typeof speechSynthesis === "undefined") {
+    speechAvailable = false
+}
+if (speechAvailable) {
+    var myvoice = "";
+    var voices = speechSynthesis.getVoices();
+    // for Safari we need to pick an English voice explicitly, otherwise the system default is used
+    for (i = 0; i < voices.length; i++) {
+        if (voices[i].lang == "en-US") {
+            myvoice = voices[i];
+            break;
+        }
     }
 }
 
 function talk(text) {
-    var msg = new SpeechSynthesisUtterance(text);
-    msg.lang = "en-US";
-    if (myvoice != "") {
-        msg.voice = myvoice;
+    if (speechAvailable) {
+        var msg = new SpeechSynthesisUtterance(text);
+        msg.lang = "en-US";
+        if (myvoice != "") {
+            msg.voice = myvoice;
+        }
+        window.speechSynthesis.speak(msg);
     }
-    window.speechSynthesis.speak(msg);
 }
+
 talk("Hello, welcome to Picochess!");
 
 function saymove(move, board) {
