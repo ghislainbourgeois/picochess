@@ -15,6 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+import os
 from typing import Optional
 import logging
 import configparser
@@ -39,34 +40,24 @@ class WindowsShellType:
 
     supports_which = True
 
-    def generate_run_command(
-        self, command_args, store_pid, cwd=None, update_env={}, new_process_group=False
-    ):
+    def generate_run_command(self, command_args, store_pid, cwd=None, update_env={}, new_process_group=False):
         if new_process_group:
-            raise spur.ssh.UnsupportedArgumentError(
-                "'new_process_group' is not supported when using a windows shell"
-            )
+            raise spur.ssh.UnsupportedArgumentError("'new_process_group' is not supported when using a windows shell")
 
         commands = []
         if command_args[0] == "kill":
             command_args = self.generate_kill_command(command_args[-1]).split()
 
         if store_pid:
-            commands.append(
-                "powershell (Get-WmiObject Win32_Process -Filter ProcessId=$PID).ParentProcessId"
-            )
+            commands.append("powershell (Get-WmiObject Win32_Process -Filter ProcessId=$PID).ParentProcessId")
 
         if cwd is not None:
             commands.append(
-                "cd {0} 2>&1 || ( echo. & echo spur-cd: %errorlevel% & exit 1 )".format(
-                    self.win_escape_sh(cwd)
-                )
+                "cd {0} 2>&1 || ( echo. & echo spur-cd: %errorlevel% & exit 1 )".format(self.win_escape_sh(cwd))
             )
             commands.append("echo. & echo spur-cd: 0")
 
-        update_env_commands = [
-            "SET {0}={1}".format(key, value) for key, value in update_env.items()
-        ]
+        update_env_commands = ["SET {0}={1}".format(key, value) for key, value in update_env.items()]
         commands += update_env_commands
         commands.append(
             "( (powershell Get-Command {0} > nul 2>&1) && echo 0) || (echo %errorlevel% & exit 1)".format(
@@ -182,12 +173,7 @@ class UciEngine(object):
 
     def has_levels(self):
         """Return engine level support."""
-        has_lv = (
-            self.has_skill_level()
-            or self.has_handicap_level()
-            or self.has_limit_strength()
-            or self.has_strength()
-        )
+        has_lv = self.has_skill_level() or self.has_handicap_level() or self.has_limit_strength() or self.has_strength()
         return self.level_support or has_lv
 
     def has_skill_level(self):
@@ -224,14 +210,14 @@ class UciEngine(object):
 
     def quit(self):
         """Quit engine."""
-        try:
-            if self.engine.quit():  # Ask nicely
-                if self.engine.terminate():  # If you won't go nicely....
+        if self.engine.quit():  # Ask nicely
+            if self.engine.terminate():  # If you won't go nicely....
+                if self.is_mame:
+                    os.system("sudo pkill -9 -f mess")
+                else:
                     if self.engine.kill():  # Right that does it!
                         return False
-            return True
-        except chess.uci.EngineTerminatedException:
-            return True
+        return True
 
     def uci(self):
         """Send start uci command."""
@@ -306,9 +292,7 @@ class UciEngine(object):
         logger.info("res: %s", self.res)
         # Observable.fire(Event.STOP_SEARCH())
         if self.show_best and self.res:
-            Observable.fire(
-                Event.BEST_MOVE(move=self.res.bestmove, ponder=self.res.ponder, inbook=False)
-            )
+            Observable.fire(Event.BEST_MOVE(move=self.res.bestmove, ponder=self.res.ponder, inbook=False))
         else:
             logger.info("event best_move not fired")
 
@@ -322,9 +306,7 @@ class UciEngine(object):
         logger.info("res: %s", self.res)
         # Observable.fire(Event.STOP_SEARCH())
         if self.show_best and self.res:
-            Observable.fire(
-                Event.BEST_MOVE(move=self.res.bestmove, ponder=self.res.ponder, inbook=False)
-            )
+            Observable.fire(Event.BEST_MOVE(move=self.res.bestmove, ponder=self.res.ponder, inbook=False))
         else:
             logger.info("event best_move not fired")
 
@@ -402,9 +384,7 @@ class UciEngine(object):
                         del self.options["UCI_Elo"]
                 except Exception as e:  # noqa - catch all exceptions for eval()
                     print(f"invalid option set for UCI_Elo={uci_elo_with_rating}, exception={e}")
-                    logger.error(
-                        f"invalid option set for UCI_Elo={uci_elo_with_rating}, exception={e}"
-                    )
+                    logger.error(f"invalid option set for UCI_Elo={uci_elo_with_rating}, exception={e}")
                     del self.options["UCI_Elo"]
             else:
                 del self.options["UCI_Elo"]
@@ -425,9 +405,7 @@ class UciEngine(object):
         new_rating = rating.rate(Rating(self.engine_rating, 0), result)
         if self.uci_elo_eval_fn is not None:
             # evaluation function instead of auto?
-            self.engine_rating = eval(
-                self.uci_elo_eval_fn.replace("auto", str(int(new_rating.rating)))
-            )
+            self.engine_rating = eval(self.uci_elo_eval_fn.replace("auto", str(int(new_rating.rating))))
         else:
             self.engine_rating = self._round_engine_rating(int(new_rating.rating))
         self._save_rating(new_rating)
