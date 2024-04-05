@@ -77,6 +77,7 @@ from eboard import EBoard
 from dgt.board import DgtBoard, Rev2Info
 from chesslink.board import ChessLinkBoard
 from chessnut.board import ChessnutBoard
+from ichessone.board import IChessOneBoard
 from certabo.board import CertaboBoard
 from dgt.translate import DgtTranslate
 from dgt.menu import DgtMenu
@@ -2215,6 +2216,8 @@ def main() -> None:
         dgtboard: EBoard = ChessLinkBoard()
     elif board_type == dgt.util.EBoard.CHESSNUT:
         dgtboard = ChessnutBoard()
+    elif board_type == dgt.util.EBoard.ICHESSONE:
+        dgtboard = IChessOneBoard()
     elif board_type == dgt.util.EBoard.CERTABO:
         dgtboard = CertaboBoard()
     else:
