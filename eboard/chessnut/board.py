@@ -16,13 +16,13 @@ import logging
 from threading import Thread
 import queue
 
-from eboard import EBoard
+from eboard.eboard import EBoard
 from utilities import DisplayMsg
 from dgt.api import Message, Dgt
 from dgt.util import ClockIcons
 
-from chessnut.chessnut_agent import ChessnutAgent
-from chessnut.parser import Battery
+from eboard.chessnut.chessnut_agent import ChessnutAgent
+from eboard.chessnut.parser import Battery
 
 
 logger = logging.getLogger(__name__)

@@ -2,11 +2,11 @@
 
 import unittest
 from unittest.mock import call, patch
-from ichessone.parser import Parser
-from ichessone.parser import Battery
+from eboard.ichessone.parser import Parser
+from eboard.ichessone.parser import Battery
 
 
-@patch('ichessone.parser.ParserCallback')
+@patch('eboard.ichessone.parser.ParserCallback')
 class TestParser(unittest.TestCase):
 
     def test_initial_position(self, MockedParserCallback):

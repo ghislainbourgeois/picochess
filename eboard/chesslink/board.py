@@ -16,12 +16,12 @@ import logging
 from threading import Thread
 import queue
 
-from eboard import EBoard
+from eboard.eboard import EBoard
 from utilities import DisplayMsg
 from dgt.api import Message, Dgt
 from dgt.util import ClockIcons
 
-from chesslink.chess_link_agent import ChessLinkAgent
+from eboard.chesslink.chess_link_agent import ChessLinkAgent
 
 
 logger = logging.getLogger(__name__)

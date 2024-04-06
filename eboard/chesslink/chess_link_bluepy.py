@@ -31,7 +31,7 @@ import queue
 import time
 import os
 
-import chesslink.chess_link_protocol as clp
+import eboard.chesslink.chess_link_protocol as clp
 
 try:
     import bluepy  # type: ignore

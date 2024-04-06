@@ -20,12 +20,14 @@ import threading
 import queue
 import json
 
-from move_debouncer import MoveDebouncer
-from ichessone.ble_transport import Transport
-from ichessone.parser import Parser, ParserCallback, Battery
-from ichessone import command
+from eboard.move_debouncer import MoveDebouncer
+from eboard.ble_transport import Transport
+from eboard.ichessone.parser import Parser, ParserCallback, Battery
+from eboard.ichessone import command
 
 logger = logging.getLogger(__name__)
+READ_CHARACTERISTIC = '6E400003-B5A3-F393-E0A9-E50E24DCCA9E'
+WRITE_CHARACTERISTIC = '6E400002-B5A3-F393-E0A9-E50E24DCCA9E'
 
 
 class Protocol(ParserCallback):
@@ -103,7 +105,7 @@ class Protocol(ParserCallback):
 
     def _search_board(self):
         try:
-            tr = Transport(self.trque)
+            tr = Transport(self.trque, READ_CHARACTERISTIC, WRITE_CHARACTERISTIC)
             logger.debug('created obj')
             if tr.is_init():
                 logger.debug('Transport loaded.')
@@ -111,7 +113,7 @@ class Protocol(ParserCallback):
                     btle = self.config['btle_iface']
                 else:
                     btle = 0
-                address = tr.search_board(btle)
+                address = tr.search_board('iChessOne', btle)
                 if address is not None:
                     logger.debug(f'Found board at address {address}')
                     self.config = {'address': address}
@@ -132,6 +134,8 @@ class Protocol(ParserCallback):
         else:
             self.trans.quit()
             logger.error(f'Connection to iChessOne at {address} FAILED.')
+            self.config = {}
+            self.write_configuration()
             self.error_condition = True
 
     def quit(self):
@@ -239,7 +243,7 @@ class Protocol(ParserCallback):
             self.trans.write_mt(command.request_board())
 
     def _open_transport(self):
-        tr = Transport(self.trque)
+        tr = Transport(self.trque, READ_CHARACTERISTIC, WRITE_CHARACTERISTIC)
         if tr.is_init():
             return tr
         else:

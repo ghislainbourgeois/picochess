@@ -3,7 +3,7 @@
 import binascii
 import unittest
 
-import ichessone.command as cmd
+import eboard.ichessone.command as cmd
 
 
 class TestCommand(unittest.TestCase):

@@ -42,7 +42,7 @@ import json
 import importlib
 import copy
 
-import chesslink.chess_link_protocol as clp
+import eboard.chesslink.chess_link_protocol as clp
 
 
 # See document:

@@ -15,10 +15,10 @@ from typing import List, Optional
 
 import chess  # type: ignore
 
-from certabo.led_control import CertaboLedControl
-from certabo.parser import to_square
-from certabo.parser import ParserCallback
-import certabo.command
+from eboard.certabo.led_control import CertaboLedControl
+from eboard.certabo.parser import to_square
+from eboard.certabo.parser import ParserCallback
+import eboard.certabo.command
 
 
 class Sentio(object):
@@ -58,18 +58,18 @@ class Sentio(object):
         occupied_squares = self._occupied_to_squares(occupied)
         if expected_squares == occupied_squares:
             self.callback.board_update(self.board.board_fen())
-            self._write_led_command(certabo.command.set_leds_off())
+            self._write_led_command(eboard.certabo.command.set_leds_off())
         elif occupied_squares == self._fen_to_squares(chess.STARTING_FEN):
             self.board = chess.Board()
             self._call_board_update(self.board.board_fen())
-            self._write_led_command(certabo.command.set_leds_off())
+            self._write_led_command(eboard.certabo.command.set_leds_off())
         elif not self._take_back_move(occupied_squares):
             self._leds_for_difference(expected_squares, occupied_squares)
             self._check_valid_move(expected_squares, occupied_squares)
 
     def _leds_for_difference(self, expected_squares, occupied_squares):
         difference = list(expected_squares.symmetric_difference(occupied_squares))
-        self._write_led_command(certabo.command.set_led_squares(difference))
+        self._write_led_command(eboard.certabo.command.set_led_squares(difference))
 
     def _fen_to_squares(self, fen: str):
         return chess.SquareSet(chess.Board(fen).occupied)
@@ -175,8 +175,8 @@ class Sentio(object):
 
     def _write_led_command(self, cmd: bytearray):
         if self.last_engine_move is not None:
-            cmd = certabo.command.add_led_squares(cmd, [self.last_engine_move.from_square,
-                                                        self.last_engine_move.to_square])
+            cmd = eboard.certabo.command.add_led_squares(cmd, [self.last_engine_move.from_square,
+                                                               self.last_engine_move.to_square])
         self.led_control.write_led_command(cmd)
 
 

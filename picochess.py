@@ -73,12 +73,12 @@ from dgt.util import GameResult, TimeMode, Mode, PlayMode, PicoComment, PicoCoac
 from dgt.hw import DgtHw
 from dgt.pi import DgtPi
 from dgt.display import DgtDisplay
-from eboard import EBoard
+from eboard.eboard import EBoard
 from dgt.board import DgtBoard, Rev2Info
-from chesslink.board import ChessLinkBoard
-from chessnut.board import ChessnutBoard
-from ichessone.board import IChessOneBoard
-from certabo.board import CertaboBoard
+from eboard.chesslink.board import ChessLinkBoard
+from eboard.chessnut.board import ChessnutBoard
+from eboard.ichessone.board import IChessOneBoard
+from eboard.certabo.board import CertaboBoard
 from dgt.translate import DgtTranslate
 from dgt.menu import DgtMenu
 

@@ -26,7 +26,7 @@
 import logging
 import time
 
-import chesslink.chess_link as cl
+import eboard.chesslink.chess_link as cl
 
 
 logger = logging.getLogger(__name__)

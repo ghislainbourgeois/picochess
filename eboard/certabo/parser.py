@@ -16,6 +16,8 @@ import binascii
 import re
 from collections import Counter
 
+from eboard.eboard import to_short_fen, check_reversed
+
 
 class CertaboPiece(object):
 
@@ -127,9 +129,9 @@ class Parser(object):
             self.piece_recognition = True
             self.callback.has_piece_recognition(True)
         if self.piece_recognition:
-            self._parse_with_piece_info(split_input)
+            return self._parse_with_piece_info(split_input)
         else:
-            self._parse_without_piece_info(split_input)
+            return self._parse_without_piece_info(split_input)
 
     def _parse_with_piece_info(self, split_input):
         if len(split_input) >= 320:
@@ -187,19 +189,19 @@ class CertaboBoardMessageParser(BoardTranslator):
         self.parser.parse(msg)
 
     def translate(self, board: List[CertaboPiece]):
-        newBoard: List = [None] * 64
+        new_board: List = [None] * 64
         i = 0
         for piece in board:
             square = to_square(i)
             if piece in self.stones:
-                newBoard[square] = self.stones[piece]
+                new_board[square] = self.stones[piece]
             else:
-                newBoard[square] = NO_STONE
+                new_board[square] = NO_STONE
             i += 1
         if self.low_gain_chips:
             # average over the last three IDs for each square for low gain chips
             self.board_history = self.board_history[-2:]
-            self.board_history.append(newBoard)
+            self.board_history.append(new_board)
             counter: Dict = Counter()
             for board in self.board_history:
                 d = {index: value for index, value in enumerate(board)}
@@ -210,58 +212,13 @@ class CertaboBoardMessageParser(BoardTranslator):
                 avg_board.append(stone)
             self._process_new_board(avg_board)
         else:
-            self._process_new_board(newBoard)
+            self._process_new_board(new_board)
 
     def _process_new_board(self, new_board):
         if self.last_board != new_board:
             self.last_board = new_board
-            board = self._check_reversed(new_board)
-            self.callback.board_update(self._to_short_fen(board))
-
-    # TODO duplicates _to_short_fen from chessnut/parser.py
-    def _to_short_fen(self, board):
-        fen = ''
-        for row_index, row in enumerate(range(7, -1, -1)):
-            blanks = 0
-            for col_index, col in enumerate(range(8)):
-                if board[row * 8 + col] == ' ':
-                    blanks += 1
-                    if col_index == 7 and blanks > 0:
-                        fen += str(blanks)
-                else:
-                    if blanks > 0:
-                        fen += str(blanks)
-                    blanks = 0
-                    fen += board[row * 8 + col]
-            if row_index != 7:
-                fen += '/'
-        return fen
-
-    def _check_reversed(self, brd):
-        board = brd.copy()
-        w_count_lower_half, b_count_lower_half = self._piece_count(board, range(32))
-        w_count_upper_half, b_count_upper_half = self._piece_count(board, range(32, 64))
-        if self.reversed and w_count_lower_half > 10 and b_count_upper_half > 10:
-            self.reversed = False
-            self.callback.reversed(self.reversed)
-        elif not self.reversed and w_count_upper_half > 10 and b_count_lower_half > 10:
-            self.reversed = True
-            self.callback.reversed(self.reversed)
-        if self.reversed:
-            board.reverse()
-        return board
-
-    # TODO duplicates _piece_count from chessnut/parser.py
-    def _piece_count(self, board, board_half):
-        w_count = 0
-        b_count = 0
-        for i in board_half:
-            if board[i] != ' ':
-                if board[i] < 'Z':
-                    w_count += 1
-                else:
-                    b_count += 1
-        return w_count, b_count
+            board, self.reversed = check_reversed(new_board, self.reversed, self.callback)
+            self.callback.board_update(to_short_fen(board))
 
     def translate_occupied_squares(self, board: List[int]):
         self.callback.occupied_squares(board)
@@ -277,14 +234,14 @@ class CalibrationSquare(object):
         self.pieceId: Optional[CertaboPiece] = None
 
     def calibrate_piece(self, callback: CalibrationCallback, received_boards: List[List[CertaboPiece]]):
-        piece_count: Dict[CertaboPiece, int] = {}
+        calib_piece_count: Dict[CertaboPiece, int] = {}
         for board in received_boards:
             piece = board[self.square]
-            if piece in piece_count.keys():
-                piece_count[piece] = piece_count[piece] + 1
+            if piece in calib_piece_count.keys():
+                calib_piece_count[piece] = calib_piece_count[piece] + 1
             else:
-                piece_count[piece] = 1
-        for p_id, count in piece_count.items():
+                calib_piece_count[piece] = 1
+        for p_id, count in calib_piece_count.items():
             if count > len(received_boards) // 2 and self._piece_or_extra_queen_square(p_id):
                 self.pieceId = p_id
                 if p_id != NO_PIECE:
@@ -339,8 +296,8 @@ class CertaboCalibrator(BoardTranslator):
         self.calibrationSquares.append(CalibrationSquare(BLACK_EXTRA_QUEEN_SQUARE))
         self.calibrationSquares.append(CalibrationSquare(WHITE_EXTRA_QUEEN_SQUARE))
 
-    def calibrate(self, input: bytearray):
-        self.parser.parse(input)
+    def calibrate(self, calib_input: bytearray):
+        self.parser.parse(calib_input)
 
     def translate(self, board: List[CertaboPiece]):
         self.receivedBoards.append(board)
@@ -358,10 +315,10 @@ class CertaboCalibrator(BoardTranslator):
                 self.callback.calibration_error()
 
     def check_pieces(self) -> bool:
-        allCalibrated = True
+        all_calibrated = True
         for square in self.calibrationSquares:
             if not square.is_calibrated():
                 square.calibrate_piece(self.callback, self.receivedBoards)
                 if not square.is_calibrated():
-                    allCalibrated = False
-        return allCalibrated
+                    all_calibrated = False
+        return all_calibrated

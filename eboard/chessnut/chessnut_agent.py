@@ -14,24 +14,24 @@
 import logging
 import time
 
-from ichessone.protocol import Protocol
+from eboard.chessnut.protocol import Protocol
 
 
 logger = logging.getLogger(__name__)
 
 
-class IChessOneAgent:
+class ChessnutAgent:
 
     def __init__(self, appque):
-        self.name = 'IChessOneAgent'
+        self.name = 'ChessnutAgent'
         self.appque = appque
         self.brd = Protocol(self.appque, self.name)
         self.init_position = False
 
         if self.brd.connected:
-            self.request_board_updates()
+            self.realtime_mode()
         else:
-            logger.warning('Connection to iChessOne failed.')
+            logger.warning('Connection to Chessnut failed.')
             return
 
         logger.debug('waiting for board position')
@@ -39,11 +39,11 @@ class IChessOneAgent:
         warned = False
         while not self.init_position:
             if self.brd.error_condition:
-                logger.info('iChessOne board not available.')
+                logger.info('Chessnut board not available.')
                 return
             if time.time() - start > 2 and not warned:
                 warned = True
-                logger.info('Searching for iChessOne board...')
+                logger.info('Searching for Chessnut board...')
             self.init_position = self.brd.position_initialized()
             time.sleep(0.1)
 
@@ -64,5 +64,5 @@ class IChessOneAgent:
     def request_battery_status(self):
         self.brd.request_battery_status()
 
-    def request_board_updates(self):
-        self.brd.request_board_updates()
+    def realtime_mode(self):
+        self.brd.realtime_mode()

@@ -14,7 +14,7 @@
 import logging
 import time
 
-from certabo.protocol import Protocol
+from eboard.certabo.protocol import Protocol
 
 
 logger = logging.getLogger(__name__)
