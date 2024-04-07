@@ -184,9 +184,9 @@ class Transport():
         """
         Get name of this transport.
 
-        :returns: 'chesslink.chess_link_bluepy'
+        :returns: 'eboard.chesslink.chess_link_bluepy'
         """
-        return 'chesslink.chess_link_bluepy'
+        return 'eboard.chesslink.chess_link_bluepy'
 
     def is_init(self):
         """

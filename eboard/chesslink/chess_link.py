@@ -34,7 +34,6 @@
 '''
 import time
 import logging
-import platform
 import sys
 import threading
 import queue
@@ -43,6 +42,7 @@ import importlib
 import copy
 
 import eboard.chesslink.chess_link_protocol as clp
+import eboard.chesslink.chess_link_bluepy as tri
 
 
 # See document:
@@ -116,13 +116,6 @@ class ChessLink:
         self.name = name
         self.figrep = {'int': [1, 2, 3, 4, 5, 6, 0, -1, -2, -3, -4, -5, -6],
                        'ascii': 'PNBRQK.pnbrqk'}
-        self.transports = {'Darwin': ['chesslink.chess_link_usb'],
-                           # chesslink.chess_link_usb disabled on Linux for now
-                           # due to problems with initial BLE connection if picochess is started
-                           # before ChessLink is turned on
-                           'Linux': ['chesslink.chess_link_bluepy'],
-                           'Windows': ['chesslink.chess_link_usb']}
-
         logger.debug('Chess Link starting')
         self.WHITE = 0
         self.BLACK = 1
@@ -130,14 +123,6 @@ class ChessLink:
         self.turn = self.WHITE
         if sys.version_info[0] < 3:
             logger.critical('FATAL: You need Python 3.x to run this module.')
-            exit(-1)
-
-        if platform.system() not in self.transports:
-            logger.critical(f'Fatal: {platform.system()} is not a supported platform.')
-            msg = 'Supported are: '
-            for p in self.transports:
-                msg += '{} '.format(p)
-            logger.debug(msg)
             exit(-1)
 
         self.appque = appque
@@ -158,7 +143,6 @@ class ChessLink:
             target=self._event_worker_thread, args=(self.trque, self.board_mutex))
         self.event_thread.setDaemon(True)
         self.event_thread.start()
-        self.imported_transports = {}
 
         self.mill_config = None
         try:
@@ -168,15 +152,11 @@ class ChessLink:
         # These repetitions are caused by monolithic arch of bluepy single-threads.
         reps = 0
         # Should be replaced by async refactor at some point.
-        if self.mill_config is not None:
-            transports_blacklist = self.mill_config.get('transports_blacklist', [])
-        else:
-            transports_blacklist = []
         while True:
             if reps > 0:
                 logger.warning('Retrying scan and connect after error.')
             if not self.found_board:
-                self._search_board(transports_blacklist)
+                self._search_board()
 
             if self.mill_config is None or self.trans is None:
                 logger.error('No transport available, cannot connect.')
@@ -223,38 +203,25 @@ class ChessLink:
                         else:
                             logger.warning('Default board not available, start scan.')
 
-    def _search_board(self, transports_blacklist):
+    def _search_board(self):
         if self.mill_config is None or 'autodetect' not in self.mill_config or \
                 self.mill_config['autodetect'] is True:
-            for transport in self.transports[platform.system()]:
-                if transport in transports_blacklist:
-                    continue
-                try:
-                    if transport in self.imported_transports:
-                        tri = self.imported_transports[transport]
-                    else:
-                        tri = importlib.import_module(transport)
-                        self.imported_transports[transport] = tri
-                        logger.debug(f'imported {transport}')
-                    tr = tri.Transport(self.trque)
-                    logger.debug('created obj')
-                    if tr.is_init() is True:
-                        logger.debug(f'Transport {tr.get_name()} loaded.')
-                        if self.mill_config is not None:
-                            btle = self.mill_config['btle_iface']
-                        else:
-                            btle = 0
-                        address = tr.search_board(btle)
-                        if address is not None:
-                            logger.debug(f'Found board on transport {tr.get_name()} at address {address}')
-                            self.mill_config = {'transport': tr.get_name(), 'address': address}
-                            self.trans = tr
-                            self.write_configuration()
-                            break
-                    else:
-                        logger.warning(f'Transport {tr.get_name()} failed to initialize')
-                except Exception as e:
-                    logger.warning(f'Internal error, import of {transport} failed: {e}')
+            tr = tri.Transport(self.trque)
+            logger.debug('created obj')
+            if tr.is_init() is True:
+                logger.debug(f'Transport {tr.get_name()} loaded.')
+                if self.mill_config is not None:
+                    btle = self.mill_config['btle_iface']
+                else:
+                    btle = 0
+                address = tr.search_board(btle)
+                if address is not None:
+                    logger.debug(f'Found board on transport {tr.get_name()} at address {address}')
+                    self.mill_config = {'transport': tr.get_name(), 'address': address}
+                    self.trans = tr
+                    self.write_configuration()
+            else:
+                logger.warning(f'Transport {tr.get_name()} failed to initialize')
 
     def _connect(self):
         address = self.mill_config['address']
@@ -856,9 +823,7 @@ class ChessLink:
         """
         try:
             tri = importlib.import_module(transport)
-            logger.debug(f'imported {transport}')
             tr = tri.Transport(self.trque, protocol_debug)
-            logger.debug('created obj')
             if tr.is_init() is True:
                 logger.debug(f'Transport {tr.get_name()} loaded.')
                 return tr
