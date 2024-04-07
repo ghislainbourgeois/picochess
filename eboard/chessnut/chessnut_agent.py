@@ -14,7 +14,7 @@
 import logging
 import time
 
-from chessnut.protocol import Protocol
+from eboard.chessnut.protocol import Protocol
 
 
 logger = logging.getLogger(__name__)

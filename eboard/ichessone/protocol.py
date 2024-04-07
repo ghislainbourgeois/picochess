@@ -20,18 +20,19 @@ import threading
 import queue
 import json
 
-from move_debouncer import MoveDebouncer
-from chessnut.ble_transport import Transport
-from chessnut.parser import Parser, ParserCallback, Battery
-from chessnut import command
-
+from eboard.move_debouncer import MoveDebouncer
+from eboard.ble_transport import Transport
+from eboard.ichessone.parser import Parser, ParserCallback, Battery
+from eboard.ichessone import command
 
 logger = logging.getLogger(__name__)
+READ_CHARACTERISTIC = '6E400003-B5A3-F393-E0A9-E50E24DCCA9E'
+WRITE_CHARACTERISTIC = '6E400002-B5A3-F393-E0A9-E50E24DCCA9E'
 
 
 class Protocol(ParserCallback):
     """
-    This implements the 'Chessnut' protocol for Chessnut e-boards.
+    This implements the 'iChessOne' protocol for iChessOne e-boards.
 
     Communcation with the board is asynchronous. Replies from the board are written
     to the python queue (`appqueue`) that is provided during instantiation.
@@ -46,7 +47,7 @@ class Protocol(ParserCallback):
         """
         super().__init__()
         self.name = name
-        logger.debug('Chessnut starting')
+        logger.debug('iChessOne starting')
         self.error_condition = False
         self.appque = appque
         self.board_mutex = threading.Lock()
@@ -90,7 +91,7 @@ class Protocol(ParserCallback):
             time.sleep(3)
 
     def _read_config(self):
-        with open('chessnut_config.json', 'r') as f:
+        with open('ichessone_config.json', 'r') as f:
             self.config = json.load(f)
             if 'btle_iface' not in self.config:
                 self.config['btle_iface'] = 0
@@ -104,7 +105,7 @@ class Protocol(ParserCallback):
 
     def _search_board(self):
         try:
-            tr = Transport(self.trque)
+            tr = Transport(self.trque, READ_CHARACTERISTIC, WRITE_CHARACTERISTIC)
             logger.debug('created obj')
             if tr.is_init():
                 logger.debug('Transport loaded.')
@@ -112,7 +113,7 @@ class Protocol(ParserCallback):
                     btle = self.config['btle_iface']
                 else:
                     btle = 0
-                address = tr.search_board(btle)
+                address = tr.search_board('iChessOne', btle)
                 if address is not None:
                     logger.debug(f'Found board at address {address}')
                     self.config = {'address': address}
@@ -126,18 +127,20 @@ class Protocol(ParserCallback):
     def _connect(self):
         address = self.config['address']
         logger.debug(f'Valid board available at {address}')
-        logger.debug(f'Connecting to Chessnut at {address}')
+        logger.debug(f'Connecting to iChessOne at {address}')
         self.connected = self.trans.open_mt(address)
         if self.connected:
-            logger.info(f'Connected to Chessnut at {address}')
+            logger.info(f'Connected to iChessOne at {address}')
         else:
             self.trans.quit()
-            logger.error(f'Connection to Chessnut at {address} FAILED.')
+            logger.error(f'Connection to iChessOne at {address} FAILED.')
+            self.config = {}
+            self.write_configuration()
             self.error_condition = True
 
     def quit(self):
         """
-        Quit Chessnut connection.
+        Quit iChessOne connection.
         Try to terminate transport threads gracefully.
         """
         if self.trans is not None:
@@ -146,7 +149,7 @@ class Protocol(ParserCallback):
 
     def position_initialized(self):
         """
-        Check, if a board position has been received and the Chessnut board is online.
+        Check, if a board position has been received and the iChessOne board is online.
 
         :return: True, if board position has been received
         """
@@ -159,25 +162,25 @@ class Protocol(ParserCallback):
 
     def write_configuration(self):
         """
-        Write the configuration for Bluetooth LE to 'chessnut_config.json'.
+        Write the configuration for Bluetooth LE to 'ichessone_config.json'.
 
         :return: True on success, False on error
         """
         if 'btle_iface' not in self.config:
             self.config['btle_iface'] = 0
         try:
-            with open('chessnut_config.json', 'w') as f:
+            with open('ichessone_config.json', 'w') as f:
                 json.dump(self.config, f, indent=4)
                 return True
         except Exception as e:
-            logger.error(f'Failed to save default configuration {self.config} to chessnut_config.json: {e}')
+            logger.error(f'Failed to save default configuration {self.config} to ichessone_config.json: {e}')
         return False
 
     def _event_worker_thread(self):
         """
         The event worker thread is automatically started during __init__.
         """
-        logger.debug('Chessnut worker thread started.')
+        logger.debug('iChessOne worker thread started.')
         while self.thread_active:
             if not self.trque.empty():
                 msg = self.trque.get()
@@ -234,12 +237,13 @@ class Protocol(ParserCallback):
         if self.connected:
             self.trans.write_mt(command.request_battery_status())
 
-    def realtime_mode(self):
+    def request_board_updates(self):
         if self.connected:
-            self.trans.write_mt(command.request_realtime_mode())
+            self.trans.write_mt(command.request_board_updates())
+            self.trans.write_mt(command.request_board())
 
     def _open_transport(self):
-        tr = Transport(self.trque)
+        tr = Transport(self.trque, READ_CHARACTERISTIC, WRITE_CHARACTERISTIC)
         if tr.is_init():
             return tr
         else:

@@ -29,7 +29,7 @@ import logging
 import threading
 import time
 
-import chesslink.chess_link_protocol as clp
+import eboard.chesslink.chess_link_protocol as clp
 
 try:
     import serial  # type: ignore

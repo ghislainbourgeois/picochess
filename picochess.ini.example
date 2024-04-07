@@ -354,7 +354,7 @@ tutor-coach = off
 #tutor-engine = /opt/picochess/engines/armv7l/a-stockf
 tutor-engine = /opt/picochess/engines/armv7l/a-stockf
 
-## Type of e-Board. Supported values: 'certabo', 'chesslink', 'chessnut', 'dgt' (default), 'noeboard' (play against
+## Type of e-Board. Supported values: 'certabo', 'chesslink', 'chessnut', 'dgt' (default), 'ichessone', 'noeboard' (play against
 ## engine using web server interface).
 #board-type = chesslink
 board-type = dgt

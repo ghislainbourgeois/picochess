@@ -35,7 +35,7 @@ from web.picoweb import picoweb as pw
 from dgt.api import Dgt, Event, Message
 from dgt.util import PlayMode, Mode, ClockSide, GameResult
 from dgt.iface import DgtIface
-from eboard import EBoard
+from eboard.eboard import EBoard
 from pgn import ModeInfo
 
 # This needs to be reworked to be session based (probably by token)

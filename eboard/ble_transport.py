@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 class Transport(object):
 
-    def __init__(self, que: queue.Queue):
+    def __init__(self, que: queue.Queue, read_characteristic: str, write_characteristic: str):
         """
         :param que: Queue that will receive events from chess board
         """
@@ -43,6 +43,8 @@ class Transport(object):
             return
         self.wrque: queue.Queue = queue.Queue()
         self.que = que
+        self._read_characteristic = read_characteristic
+        self._write_characteristic = write_characteristic
         self.init = True
         logger.debug('bluepy_ble init ok')
         self.scan_timeout = 10
@@ -59,12 +61,12 @@ class Transport(object):
     def quit(self):
         self.worker_thread_active = False
 
-    def search_board(self, iface=0):
+    def search_board(self, board_identifier: str, iface=0):
         """
-        Search for Chessnut connections using Bluetooth LE.
+        Search for e-board connections using Bluetooth LE.
 
         :param iface: interface number of bluetooth adapter
-        :returns: Bluetooth address of Chessnut board, or None on failure
+        :returns: Bluetooth address of e-board, or None on failure
         """
         logger.debug('bluepy_ble: searching for boards')
 
@@ -87,9 +89,9 @@ class Transport(object):
             for (adtype, desc, value) in bledev.getScanData():
                 logger.debug(f'  {desc} ({adtype}) = {value}')
                 if desc == 'Complete Local Name':
-                    if 'Chessnut' in value:
+                    if board_identifier in value:
                         logger.info(
-                            f'Autodetected Chessnut board at Bluetooth LE address: '
+                            f'Autodetected {board_identifier} board at Bluetooth LE address: '
                             f'{bledev.addr}, signal strength (rssi): {bledev.rssi}')
                         return bledev.addr
         return None
@@ -111,7 +113,7 @@ class Transport(object):
 
     def open_mt(self, address):
         """
-        Open a Bluetooth LE connection to Chessnut board.
+        Open a Bluetooth LE connection to e-board.
 
         :param address: bluetooth address
         :returns: True on success.
@@ -132,7 +134,7 @@ class Transport(object):
 
     def write_mt(self, msg):
         """
-        Asynchronously write a message to Chessnut.
+        Asynchronously write a message to e-board.
 
         :param msg: Message string
         """
@@ -182,7 +184,7 @@ class Transport(object):
             logger.error(emsg)
             self._agent_state(que, 'offline', emsg)
             return None, None
-        self._agent_state(que, 'online', 'Connected to Chessnut board via BLE')
+        self._agent_state(que, 'online', 'Connected to e-board via BLE')
         return rx, tx
 
     def _init_characteristics(self, device, services):
@@ -193,13 +195,13 @@ class Transport(object):
             logger.debug(f'Service: {ser}')
             chrs = ser.getCharacteristics()
             for chri in chrs:
-                if chri.uuid == '1b7e8262-2877-41c3-b46e-cf057c562023':
+                if chri.uuid == self._read_characteristic:
                     rx = chri
                     rxh = chri.getHandle()
                     logger.debug('Enabling notifications')
                     device.writeCharacteristic(handle=rxh + 1, val=(1).to_bytes(2, byteorder='little'),
                                                withResponse=True)
-                elif chri.uuid == '1b7e8272-2877-41c3-b46e-cf057c562023':
+                elif chri.uuid == self._write_characteristic:
                     tx = chri
                 if chri.supportsRead():
                     logger.debug(f'  {chri} UUID={chri.uuid} {chri.propertiesToString()} -> {chri.read()}')
@@ -245,7 +247,7 @@ class Transport(object):
                 except Exception as e:
                     logger.error(f'bluepy_ble: failed to write {msg}: {e}')
                     bt_error = True
-                    self._agent_state(que, 'offline', 'Connection to Bluetooth peripheral lost')
+                    self._agent_state(que, 'offline', 'BLE connection lost')
                 wrque.task_done()
 
             try:
@@ -253,7 +255,7 @@ class Transport(object):
             except Exception as e:
                 logger.warning(f'Bluetooth read error {e}')
                 bt_error = True
-                self._agent_state(que, 'offline', 'Connection to Bluetooth peripheral lost')
+                self._agent_state(que, 'offline', 'BLE connection lost')
                 continue
             time.sleep(0.01)
         device.disconnect()

@@ -31,7 +31,7 @@ import queue
 import time
 import os
 
-import chesslink.chess_link_protocol as clp
+import eboard.chesslink.chess_link_protocol as clp
 
 try:
     import bluepy  # type: ignore
@@ -184,9 +184,9 @@ class Transport():
         """
         Get name of this transport.
 
-        :returns: 'chesslink.chess_link_bluepy'
+        :returns: 'eboard.chesslink.chess_link_bluepy'
         """
-        return 'chesslink.chess_link_bluepy'
+        return 'eboard.chesslink.chess_link_bluepy'
 
     def is_init(self):
         """
